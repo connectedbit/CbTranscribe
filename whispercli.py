@@ -7,9 +7,34 @@ import configparser
 import os
 
 
-def transcode(file):
-    model = whisper.load_model("base.en")
-    result = model.transcribe(audio=file, language="english", fp16=False, verbose=False)
+def build_transcribe_options(whisper_config):
+    options = {}
+
+    language = whisper_config.get("language", fallback="").strip()
+    if language:
+        options["language"] = language
+
+    options["fp16"] = whisper_config.getboolean("fp16", fallback=False)
+    options["verbose"] = whisper_config.getboolean("verbose", fallback=False)
+
+    beam_size = whisper_config.get("beam_size", fallback="").strip()
+    if beam_size:
+        options["beam_size"] = int(beam_size)
+
+    best_of = whisper_config.get("best_of", fallback="").strip()
+    if best_of:
+        options["best_of"] = int(best_of)
+
+    initial_prompt = whisper_config.get("initial_prompt", fallback="").strip()
+    if initial_prompt:
+        options["initial_prompt"] = initial_prompt
+
+    return options
+
+
+def transcode(file, model_name, transcribe_options):
+    model = whisper.load_model(model_name)
+    result = model.transcribe(audio=file, **transcribe_options)
     return result["text"]
 
 
@@ -50,7 +75,7 @@ def process_file(path_to_file):
     if not hash_digest_found(db, hash_digest):
         try:
             print(f"Transcoding file: {path_to_file}")
-            text = transcode(path_to_file)
+            text = transcode(path_to_file, model_name, transcribe_options)
             param_tuple = (hash_digest, path_to_file, text)
             db.execute("INSERT INTO Audio (hash, path, text) VALUES (?, ?, ?)", param_tuple)
             conn.commit()
@@ -64,6 +89,11 @@ if __name__ == "__main__":
     config = configparser.ConfigParser()
     config.read("whispercli.ini")
     db, conn = init_db(config["default"]["dbfile"])
+
+    whisper_config = config["whisper"] if config.has_section("whisper") else config["default"]
+    model_name = whisper_config.get("model", fallback="base.en").strip() or "base.en"
+    transcribe_options = build_transcribe_options(whisper_config)
+
     args = parse_arguments()
 
     if os.path.isdir(args.audio.resolve()):
