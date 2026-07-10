@@ -1,0 +1,1 @@
+pyinstaller whispercli.spec --noconfirm
